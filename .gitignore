@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Build artifacts
+build/
+dist/
+release/
+*.spec
+
+# Runtime artifacts
+uploads/
+attendance_done.png
+attendance_live.png
+attendance_live.html
+
+# Local PDFs (can be sensitive)
+*.pdf
