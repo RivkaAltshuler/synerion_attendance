@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -21,6 +22,7 @@ def resolve_base_dir() -> Path:
 
 
 BASE_DIR = resolve_base_dir()
+SITE_CONFIG_PATH = BASE_DIR / "synerion_site.txt"
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -29,6 +31,46 @@ app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 
 jobs_lock = threading.Lock()
 jobs: dict[str, dict] = {}
+
+DEFAULT_SITE_PREFIX = "prologic"
+SITE_ALIASES = {
+  "klomelbek": "trex",
+}
+
+
+def load_persisted_site() -> str | None:
+  try:
+    site = SITE_CONFIG_PATH.read_text(encoding="utf-8").strip().lower()
+    return site or None
+  except Exception:
+    return None
+
+
+def save_persisted_site(site_name: str) -> None:
+  try:
+    SITE_CONFIG_PATH.write_text(site_name.strip().lower() + "\n", encoding="utf-8")
+  except Exception:
+    pass
+
+
+def normalize_site_prefix(raw_value: str | None) -> str | None:
+  if not raw_value:
+    return None
+
+  value = raw_value.strip().lower()
+  if not value:
+    return None
+
+  value = SITE_ALIASES.get(value, value)
+  value = re.sub(r"^https?://", "", value)
+  value = value.split("/", 1)[0]
+  if value.endswith(".synerioncloud.com"):
+    value = value[: -len(".synerioncloud.com")]
+  value = value.strip(".")
+
+  if not re.fullmatch(r"[a-z0-9-]+", value):
+    return None
+  return value
 
 
 HTML_PAGE = """
@@ -175,6 +217,28 @@ HTML_PAGE = """
     .action-btn:hover { transform: translateY(-1px); }
     .action-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
+    .site-select {
+      margin-top: 16px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .site-select label {
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .site-select input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font: inherit;
+      color: var(--ink);
+      background: rgba(255,255,255,0.85);
+    }
+
     .summary { background: linear-gradient(135deg, #0f766e, #178f84); }
     .verify { background: linear-gradient(135deg, #c7702e, #dd8d42); }
     .auto { background: linear-gradient(135deg, #93441f, #b15e2f); }
@@ -243,18 +307,27 @@ HTML_PAGE = """
   <div class="shell">
     <section class="hero">
       <div class="badge">ממשק מקומי לסינריון</div>
-      <h1>מעלים PDF, בודקים, ואז מדווחים.</h1>
-      <p class="sub">המסך הזה רץ רק על המחשב המקומי. הקובץ נשאר אצלך, והכלי מאחורי הקלעים מפעיל את אותו מנגנון שכבר עובד מול מל"מ וסינריון.</p>
+     
+      <p class="sub">המסך הזה רץ רק על המחשב המקומי. מעלים קובץ דיווח שעות ממל"מ והכלי מפעיל דיווח תואם בסינריון.</p>
     </section>
 
     <section class="grid">
       <div class="panel">
         <h2>קובץ דוח</h2>
-        <p class="hint">בחרי את קובץ ה־PDF שהופק ממל"מ. אחר כך אפשר לבחור אם לבצע בדיקה בלבד, אימות מול סינריון, או דיווח אוטומטי.</p>
+        
 
         <div class="dropzone">
           <input id="pdf-input" type="file" accept=".pdf,application/pdf">
           <div id="file-name" class="file-name">עדיין לא נבחר קובץ</div>
+        </div>
+
+        <div class="site-select">
+          <label for="site-input">קידומת אתר סינריון</label>
+          <input id="site-input" type="text" value="{{ current_site or default_site_prefix }}" placeholder="למשל: prologic">
+          <div class="tips">
+            <div>יש להזין רק את החלק שלפני synerioncloud.com.</div>
+            <div>אפשר גם להדביק URL מלא, והמערכת תשמור רק את הקידומת.</div>
+          </div>
         </div>
 
         <div class="actions">
@@ -287,6 +360,8 @@ HTML_PAGE = """
   <script>
     const fileInput = document.getElementById('pdf-input');
     const fileName = document.getElementById('file-name');
+    const currentSite = {{ current_site|tojson }};
+    const siteInput = document.getElementById('site-input');
     const logEl = document.getElementById('log');
     const statusPill = document.getElementById('status-pill');
     const buttons = Array.from(document.querySelectorAll('.action-btn'));
@@ -308,7 +383,8 @@ HTML_PAGE = """
 
     async function startJob(mode) {
       const file = fileInput.files[0];
-      if (!file) {
+      const requiresPdf = (mode === 'summary' || mode === 'auto');
+      if (requiresPdf && !file) {
         setStatus('יש לבחור PDF קודם', true);
         logEl.textContent = 'לא נבחר קובץ PDF.';
         return;
@@ -320,12 +396,15 @@ HTML_PAGE = """
       }
 
       setBusy(true);
-      setStatus('מעלה קובץ...');
-      logEl.textContent = 'מעלה את הקובץ ומתחיל ריצה...';
+      setStatus(requiresPdf ? 'מעלה קובץ...' : 'מתחיל ריצה...');
+      logEl.textContent = requiresPdf ? 'מעלה את הקובץ ומתחיל ריצה...' : 'מתחיל ריצה...';
 
       const formData = new FormData();
-      formData.append('pdf', file);
+      if (file) {
+        formData.append('pdf', file);
+      }
       formData.append('mode', mode);
+      formData.append('site', siteInput ? siteInput.value : (currentSite || 'prologic'));
 
       const response = await fetch('/api/jobs', { method: 'POST', body: formData });
       const payload = await response.json();
@@ -390,13 +469,15 @@ def resolve_runner() -> list[str]:
   raise FileNotFoundError("No runnable application was found. Run from the release folder, or prepare the developer environment and build.")
 
 
-def build_command(mode: str, pdf_path: Path) -> list[str]:
+def build_command(mode: str, pdf_path: Path | None, site: str) -> list[str]:
   mode_flag = {
     "summary": "--summary-only",
     "verify": "--verify",
     "auto": "--auto",
   }[mode]
-  command = [*resolve_runner(), mode_flag, "--pdf", str(pdf_path), "--no-pause"]
+  command = [*resolve_runner(), mode_flag, "--site", site, "--no-pause"]
+  if pdf_path is not None:
+    command.extend(["--pdf", str(pdf_path)])
   if mode in {"verify", "auto"}:
     command.append("--keep-browser-open")
   return command
@@ -407,15 +488,16 @@ def append_log(job_id: str, line: str) -> None:
         jobs[job_id]["log"].append(line)
 
 
-def start_job(mode: str, pdf_path: Path) -> str:
+def start_job(mode: str, pdf_path: Path | None, site: str) -> str:
     job_id = secrets.token_hex(8)
     with jobs_lock:
         jobs[job_id] = {
             "id": job_id,
             "mode": mode,
+      "site": site,
             "running": True,
             "exit_code": None,
-            "log": [f"Starting {mode} run for {pdf_path.name}\n"],
+            "log": [f"Starting {mode} run for {(pdf_path.name if pdf_path else 'no-pdf')} (site={site})\n"],
             "created_at": time.time(),
         }
 
@@ -429,7 +511,7 @@ def start_job(mode: str, pdf_path: Path) -> str:
         env["SYNERION_LOG_FILE"] = str(sidecar_log)
 
         process = subprocess.Popen(
-          build_command(mode, pdf_path),
+          build_command(mode, pdf_path, site),
           cwd=str(BASE_DIR),
           stdout=subprocess.DEVNULL,
           stderr=subprocess.DEVNULL,
@@ -473,26 +555,42 @@ def start_job(mode: str, pdf_path: Path) -> str:
 
 @app.get("/")
 def index():
-    return render_template_string(HTML_PAGE)
+    current_site = load_persisted_site()
+    return render_template_string(
+        HTML_PAGE,
+        current_site=current_site,
+        default_site_prefix=DEFAULT_SITE_PREFIX,
+    )
 
 
 @app.post("/api/jobs")
 def create_job():
     mode = request.form.get("mode", "")
+    raw_site = request.form.get("site", "") or load_persisted_site() or DEFAULT_SITE_PREFIX
+    site = normalize_site_prefix(raw_site)
     uploaded = request.files.get("pdf")
 
     if mode not in {"summary", "verify", "auto"}:
         return jsonify({"error": "Invalid mode"}), 400
-    if uploaded is None or uploaded.filename == "":
-        return jsonify({"error": "PDF file is required"}), 400
-    if not uploaded.filename.lower().endswith(".pdf"):
-        return jsonify({"error": "Only PDF files are supported"}), 400
+    if site is None:
+        return jsonify({"error": "Invalid site. Use only the part before .synerioncloud.com"}), 400
+    save_persisted_site(site)
+    pdf_path: Path | None = None
+    if mode == "verify":
+        pass
+    elif mode in {"summary", "auto"}:
+        if uploaded is None or uploaded.filename == "":
+            return jsonify({"error": "PDF file is required"}), 400
+        if not uploaded.filename.lower().endswith(".pdf"):
+            return jsonify({"error": "Only PDF files are supported"}), 400
 
-    safe_name = f"{int(time.time())}_{secrets.token_hex(4)}.pdf"
-    pdf_path = UPLOAD_DIR / safe_name
-    uploaded.save(pdf_path)
+        safe_name = f"{int(time.time())}_{secrets.token_hex(4)}.pdf"
+        pdf_path = UPLOAD_DIR / safe_name
+        uploaded.save(pdf_path)
+    else:
+      return jsonify({"error": "Invalid mode"}), 400
 
-    job_id = start_job(mode, pdf_path)
+    job_id = start_job(mode, pdf_path, site)
     return jsonify({"jobId": job_id})
 
 

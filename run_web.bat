@@ -10,7 +10,7 @@ set "PY_EXE=%SCRIPT_DIR%.venv\Scripts\python.exe"
 if not exist "%WEB_EXE%" if not exist "%DIST_WEB_EXE%" if not exist "%PY_EXE%" (
 	echo [ERROR] Web UI executable and development environment were not found.
 	echo End user: run from the release folder.
-	echo Developer: run setup.bat first.
+	echo Developer: prepare the local Python environment and dependencies.
 	pause
 	exit /b 1
 )

@@ -8,7 +8,7 @@ set "RELEASE_DIR=%SCRIPT_DIR%release\synerion_attendance"
 set "ZIP_PATH=%SCRIPT_DIR%release\synerion_attendance.zip"
 
 if not exist "%PY_EXE%" (
-  echo [שגיאה] סביבת הפיתוח לא מוכנה. יש להריץ קודם setup.bat.
+  echo [שגיאה] סביבת הפיתוח לא מוכנה. יש להכין סביבת Python מקומית.
   pause
   exit /b 1
 )
@@ -36,18 +36,9 @@ mkdir "%RELEASE_DIR%"
 echo [4/5] מעתיק קבצים למשתמש הקצה...
 copy /y "%SCRIPT_DIR%dist\synerion_attendance.exe" "%RELEASE_DIR%\synerion_attendance.exe" >nul
 copy /y "%SCRIPT_DIR%dist\synerion_web_ui.exe" "%RELEASE_DIR%\synerion_web_ui.exe" >nul
-copy /y "%SCRIPT_DIR%select_pdf.ps1" "%RELEASE_DIR%\select_pdf.ps1" >nul
-copy /y "%SCRIPT_DIR%02-בדיקת-קובץ-PDF.bat" "%RELEASE_DIR%\02-בדיקת-קובץ-PDF.bat" >nul
-copy /y "%SCRIPT_DIR%03-אימות-מול-סינריון.bat" "%RELEASE_DIR%\03-אימות-מול-סינריון.bat" >nul
-copy /y "%SCRIPT_DIR%04-דיווח-אוטומטי-לסינריון.bat" "%RELEASE_DIR%\04-דיווח-אוטומטי-לסינריון.bat" >nul
-copy /y "%SCRIPT_DIR%05-ממשק-ווב-מקומי.bat" "%RELEASE_DIR%\05-ממשק-ווב-מקומי.bat" >nul
-copy /y "%SCRIPT_DIR%run_summary.bat" "%RELEASE_DIR%\run_summary.bat" >nul
-copy /y "%SCRIPT_DIR%run_verify.bat" "%RELEASE_DIR%\run_verify.bat" >nul
-copy /y "%SCRIPT_DIR%run_auto.bat" "%RELEASE_DIR%\run_auto.bat" >nul
-copy /y "%SCRIPT_DIR%run_web.bat" "%RELEASE_DIR%\run_web.bat" >nul
-copy /y "%SCRIPT_DIR%invoke_attendance.ps1" "%RELEASE_DIR%\invoke_attendance.ps1" >nul
+copy /y "%SCRIPT_DIR%התחל-כאן.bat" "%RELEASE_DIR%\התחל-כאן.bat" >nul
 copy /y "%SCRIPT_DIR%README.md" "%RELEASE_DIR%\README.md" >nul
-copy /y "%SCRIPT_DIR%הוראות-שימוש-מהיר.txt" "%RELEASE_DIR%\הוראות-שימוש-מהיר.txt" >nul
+if exist "%SCRIPT_DIR%synerion_site.txt" copy /y "%SCRIPT_DIR%synerion_site.txt" "%RELEASE_DIR%\synerion_site.txt" >nul
 
 echo [5/5] יוצר ZIP להפצה...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path '%ZIP_PATH%') { Remove-Item '%ZIP_PATH%' -Force }; Compress-Archive -Path '%RELEASE_DIR%\*' -DestinationPath '%ZIP_PATH%'"

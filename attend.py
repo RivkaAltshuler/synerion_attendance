@@ -7,6 +7,9 @@ Synerion Attendance Auto-Filler
   python attend.py --auto --pdf=PATH_TO_REPORT.pdf
       פותח Chrome, ממתין להתחברות ידנית, ממלא לפי השורות שנשלפו מה-PDF.
 
+  python attend.py --auto --site=trex --pdf=PATH_TO_REPORT.pdf
+      בחירת אתר סינריון: trex או prologic (ברירת מחדל: prologic).
+
   python attend.py --auto --only-date=DD/MM/YYYY
       מריץ יום בודד בלבד, לדוגמה: --only-date=05/04/2026
 
@@ -19,8 +22,8 @@ Synerion Attendance Auto-Filler
   python attend.py --auto --debug-artifacts
       כמו --auto, בנוסף שומר קבצי HTML וצילום מסך לתיקיית הפרויקט לצורכי דיבוג.
 
-  python attend.py --verify --pdf=PATH_TO_REPORT.pdf
-      אימות מול חודש/סה"כ שנקראים מקובץ PDF שסופק בפרמטר.
+  python attend.py --verify
+      אימות מול סינריון בלבד: פתיחת האתר, התחברות ידנית, וסיום.
 
 דרישות:
 -------
@@ -114,8 +117,64 @@ BROWSER_EXECUTABLE = find_browser_executable()
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-URL_BASE = "https://prologic.synerioncloud.com/SynerionWeb/"
-URL_ATTENDANCE = "https://prologic.synerioncloud.com/SynerionWeb/#/attendance"
+def resolve_base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+BASE_DIR = resolve_base_dir()
+SITE_CONFIG_PATH = BASE_DIR / "synerion_site.txt"
+
+
+def load_persisted_site() -> str | None:
+    try:
+        site = SITE_CONFIG_PATH.read_text(encoding="utf-8").strip().lower()
+        return site or None
+    except Exception:
+        return None
+
+
+def save_persisted_site(site_name: str) -> None:
+    try:
+        SITE_CONFIG_PATH.write_text(site_name.strip().lower() + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+DEFAULT_SITE_PREFIX = "prologic"
+
+SITE_ALIASES = {
+    "klomelbek": "trex",
+}
+
+
+def normalize_site_prefix(raw_value: str | None) -> str | None:
+    if not raw_value:
+        return None
+
+    value = raw_value.strip().lower()
+    if not value:
+        return None
+
+    value = SITE_ALIASES.get(value, value)
+    value = re.sub(r"^https?://", "", value)
+    value = value.split("/", 1)[0]
+    if value.endswith(".synerioncloud.com"):
+        value = value[: -len(".synerioncloud.com")]
+    value = value.strip(".")
+
+    if not re.fullmatch(r"[a-z0-9-]+", value):
+        return None
+    return value
+
+
+def build_synerion_urls(site_prefix: str) -> dict[str, str]:
+    host = f"{site_prefix}.synerioncloud.com"
+    return {
+        "base": f"https://{host}/SynerionWeb/Account/Login/",
+        "attendance": f"https://{host}/SynerionWeb/#/attendance",
+    }
 
 
 def get_cli_value(flag: str) -> str | None:
@@ -139,6 +198,24 @@ DEBUG_ARTIFACTS = "--debug-artifacts" in sys.argv
 NO_PAUSE = "--no-pause" in sys.argv
 KEEP_BROWSER_OPEN = "--keep-browser-open" in sys.argv
 SCREENSHOT_PATH = "attendance_done.png"
+
+explicit_site_name = (get_cli_value("--site") or os.environ.get("SYNERION_SITE") or "").strip().lower()
+persisted_site_name = load_persisted_site()
+raw_site_name = explicit_site_name or persisted_site_name or DEFAULT_SITE_PREFIX
+SITE_NAME = normalize_site_prefix(raw_site_name)
+if SITE_NAME is None:
+    print(
+        f"[!] Invalid --site value: {raw_site_name!r}. "
+        "Use only the part before '.synerioncloud.com', for example: prologic"
+    )
+    sys.exit(2)
+
+if explicit_site_name or persisted_site_name is None:
+    save_persisted_site(SITE_NAME)
+
+site_urls = build_synerion_urls(SITE_NAME)
+URL_BASE = site_urls["base"]
+URL_ATTENDANCE = site_urls["attendance"]
 
 # ---------------------------------------------------------------------------
 # ⚠️  SELECTORS — verify / update after first pause with Playwright Inspector
@@ -323,8 +400,6 @@ async def add_note(frame, day, note_text: str) -> bool:
     try:
         await open_day_options(day)
         await click_popup_action(frame, SEL["add_note"])
-        await asyncio.sleep(0.7)
-
         note_inputs = await visible_items(frame.locator("textarea"))
         if not note_inputs:
             note_inputs = await visible_items(frame.locator("input[type='text']"))
@@ -612,6 +687,48 @@ async def main() -> None:
     print("=" * 60)
     print("  Synerion Attendance Auto-Filler")
     print("=" * 60)
+    print(f"[*] Site: {SITE_NAME}")
+
+    if VERIFY_MODE:
+        print("\nOpening browser for verification...\n")
+        tmp_profile = tempfile.mkdtemp(prefix="synerion_chrome_")
+        context = None
+        try:
+            async with async_playwright() as p:
+                context = await p.chromium.launch_persistent_context(
+                    user_data_dir=tmp_profile,
+                    executable_path=BROWSER_EXECUTABLE,
+                    headless=False,
+                    slow_mo=200,
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
+                page = context.pages[0] if context.pages else await context.new_page()
+
+                print("[*] Opening login page - please sign in in the browser...")
+                await page.goto(URL_BASE)
+                await page.wait_for_load_state("networkidle")
+                print("[*] Waiting for sign-in...")
+                try:
+                    await page.wait_for_url(lambda url: "Login" not in url and "login" not in url, timeout=300000)
+                except PWTimeout:
+                    print("[!] No sign-in detected within 5 minutes.")
+                    return
+                except Exception as exc:
+                    if "closed" in str(exc).lower():
+                        print("[!] Browser was closed before sign-in completed.")
+                        return
+                    raise
+
+                print("[OK] Sign-in detected")
+                print("[OK] Verification completed successfully")
+        finally:
+            if context is not None:
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+            shutil.rmtree(tmp_profile, ignore_errors=True)
+        return
 
     if not PDF_PATH:
         print("[!] Missing required --pdf parameter")
@@ -651,105 +768,6 @@ async def main() -> None:
             sign = "+" if delta >= 0 else "-"
             print(f"  [!] Mismatch - gap: {sign}{format_minutes(abs(delta))}")
         print("=" * 60)
-        return
-
-    if VERIFY_MODE:
-        print("\nOpening browser for verification...\n")
-        tmp_profile = tempfile.mkdtemp(prefix="synerion_chrome_")
-        context = None
-        try:
-            async with async_playwright() as p:
-                context = await p.chromium.launch_persistent_context(
-                    user_data_dir=tmp_profile,
-                    executable_path=BROWSER_EXECUTABLE,
-                    headless=False,
-                    slow_mo=200,
-                    args=["--disable-blink-features=AutomationControlled"],
-                )
-                page = context.pages[0] if context.pages else await context.new_page()
-
-                print("[*] Opening login page - please sign in in the browser...")
-                await page.goto(URL_BASE)
-                await page.wait_for_load_state("networkidle")
-                print("[*] Waiting for sign-in...")
-                try:
-                    await page.wait_for_url(lambda url: "Login" not in url and "login" not in url, timeout=120000)
-                except PWTimeout:
-                    print("[!] No sign-in detected within 120 seconds.")
-                    return
-                print("[OK] Sign-in detected")
-
-                frame = await navigate_to_attendance(page)
-                target_month = VERIFY_MONTH or default_month
-                await navigate_to_month(frame, target_month)
-                await ensure_edit_mode(frame)
-                await asyncio.sleep(1.5)
-
-                # --- קרא סיכום מהfooter של הדף ---
-                print(f"\n[*] Reading Synerion totals for {target_month}...\n")
-
-                async def read_footer_value(selector: str) -> str:
-                    loc = frame.locator(selector)
-                    if await loc.count():
-                        return (await loc.first.inner_text()).strip()
-                    return "N/A"
-
-                regular_str  = await read_footer_value("#totalRegular")
-                overtime_str = await read_footer_value("#totalOverTime")
-
-                print(f"  Regular hours (#totalRegular):  {regular_str}")
-                print(f"  Overtime (#totalOverTime):      {overtime_str}")
-
-                # חשב סכום
-                def safe_hhmm(s: str) -> int:
-                    m = re.match(r'-?(\d+):(\d+)', s)
-                    if not m:
-                        return 0
-                    val = int(m.group(1)) * 60 + int(m.group(2))
-                    return -val if s.startswith("-") else val
-
-                site_regular  = safe_hhmm(regular_str)
-                site_overtime = safe_hhmm(overtime_str)
-                site_total    = site_regular + site_overtime
-
-                print(f"\n  Synerion total (regular + overtime): {format_minutes(site_regular)} + {format_minutes(site_overtime)} = {format_minutes(site_total)}")
-
-                # Cancel edit mode without saving
-                cancel_btn = frame.locator(SEL["cancel_button"])
-                if await cancel_btn.count() and await cancel_btn.first.is_visible():
-                    await cancel_btn.first.click()
-                    await asyncio.sleep(1)
-
-                pdf_total = parse_hhmm(pdf_total_str)
-                print("\n" + "=" * 60)
-                print(f"  Verification results - {target_month}")
-                print(f"  Synerion total:           {format_minutes(site_total)}")
-                print(f"  PDF total:                {pdf_total_str}")
-                if site_total == pdf_total:
-                    print("  [OK] Full match - website data matches the PDF")
-                else:
-                    delta = site_total - pdf_total
-                    sign = "+" if delta >= 0 else "-"
-                    print(f"  [!] Mismatch - gap: {sign}{format_minutes(abs(delta))}")
-                print("=" * 60)
-
-                if is_interactive_console():
-                    print("\n  Browser is open for inspection. Press Enter here to close it when done.")
-                else:
-                    if KEEP_BROWSER_OPEN:
-                        print("\n  Non-interactive run detected. Browser will stay open until you close it.")
-                    else:
-                        print("\n  Non-interactive run detected. Browser will close automatically.")
-                wait_for_user_close()
-                if KEEP_BROWSER_OPEN and not is_interactive_console():
-                    await wait_for_manual_browser_close(context)
-        finally:
-            if context is not None:
-                try:
-                    await context.close()
-                except Exception:
-                    pass
-            shutil.rmtree(tmp_profile, ignore_errors=True)
         return
 
     print("\nOpening browser...\n")
