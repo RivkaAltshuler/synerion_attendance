@@ -142,6 +142,71 @@ HTML_PAGE = """
       margin: 0;
     }
 
+    .site-quick {
+      display: grid;
+      gap: 10px;
+      background: rgba(255,250,242,0.9);
+      border: 1px solid rgba(216,205,189,0.9);
+      border-radius: 20px;
+      padding: 14px;
+      max-width: 760px;
+    }
+
+    .site-quick > summary {
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--ink);
+      list-style: none;
+    }
+
+    .site-quick > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .site-quick-body {
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .site-quick-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--ink);
+    }
+
+    .site-quick-row {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 10px;
+    }
+
+    .site-quick select,
+    .site-quick input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font: inherit;
+      color: var(--ink);
+      background: rgba(255,255,255,0.9);
+    }
+
+    .site-link {
+      width: fit-content;
+      color: var(--accent);
+      text-decoration: underline;
+      font-weight: 700;
+    }
+
+    .site-link.disabled {
+      color: var(--muted);
+      pointer-events: none;
+      text-decoration: none;
+    }
+
     .grid {
       display: grid;
       grid-template-columns: 1.05fr 0.95fr;
@@ -300,6 +365,7 @@ HTML_PAGE = """
       .grid { grid-template-columns: 1fr; }
       .panel { padding: 20px; border-radius: 22px; }
       .log { min-height: 280px; }
+      .site-quick-row { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -309,6 +375,25 @@ HTML_PAGE = """
       <div class="badge">ממשק מקומי לסינריון</div>
      
       <p class="sub">המסך הזה רץ רק על המחשב המקומי. מעלים קובץ דיווח שעות ממל"מ והכלי מפעיל דיווח תואם בסינריון.</p>
+
+      <details class="site-quick">
+        <summary>בחירת אתר סינריון</summary>
+        <div class="site-quick-body">
+          <div class="site-quick-row">
+            <select id="site-preset" aria-label="בחירה מהירה של אתר סינריון">
+              <option value="prologic">[https://prologic.synerioncloud.com/]</option>
+              <option value="trex">[https://trex.synerioncloud.com/]</option>
+              <option value="custom">[אחר - עריכה ידנית]</option>
+            </select>
+            <input id="site-input" type="text" value="{{ current_site or default_site_prefix }}" placeholder="למשל: prologic או https://tenant.synerioncloud.com/">
+          </div>
+          <a id="site-link" class="site-link" href="#" target="_blank" rel="noopener noreferrer">בדיקת קישור לאתר שנבחר</a>
+          <div class="tips">
+            <div>אם האתר לא מופיע ברשימה, בוחרים "אחר" ועורכים את השדה ידנית.</div>
+            <div>אפשר להדביק גם URL מלא, והמערכת תשמור רק את הקידומת.</div>
+          </div>
+        </div>
+      </details>
     </section>
 
     <section class="grid">
@@ -319,15 +404,6 @@ HTML_PAGE = """
         <div class="dropzone">
           <input id="pdf-input" type="file" accept=".pdf,application/pdf">
           <div id="file-name" class="file-name">עדיין לא נבחר קובץ</div>
-        </div>
-
-        <div class="site-select">
-          <label for="site-input">קידומת אתר סינריון</label>
-          <input id="site-input" type="text" value="{{ current_site or default_site_prefix }}" placeholder="למשל: prologic">
-          <div class="tips">
-            <div>יש להזין רק את החלק שלפני synerioncloud.com.</div>
-            <div>אפשר גם להדביק URL מלא, והמערכת תשמור רק את הקידומת.</div>
-          </div>
         </div>
 
         <div class="actions">
@@ -361,11 +437,69 @@ HTML_PAGE = """
     const fileInput = document.getElementById('pdf-input');
     const fileName = document.getElementById('file-name');
     const currentSite = {{ current_site|tojson }};
+    const sitePreset = document.getElementById('site-preset');
     const siteInput = document.getElementById('site-input');
+    const siteLink = document.getElementById('site-link');
     const logEl = document.getElementById('log');
     const statusPill = document.getElementById('status-pill');
     const buttons = Array.from(document.querySelectorAll('.action-btn'));
     let activePoll = null;
+
+    const knownSites = new Set(['prologic', 'trex']);
+
+    function normalizeSiteValue(raw) {
+      if (!raw) {
+        return '';
+      }
+      let value = String(raw).trim().toLowerCase();
+      value = value.replace(/^https?:\/\//, '');
+      value = value.split('/', 1)[0];
+      if (value.endsWith('.synerioncloud.com')) {
+        value = value.slice(0, -'.synerioncloud.com'.length);
+      }
+      value = value.replace(/^\.+|\.+$/g, '');
+      if (!/^[a-z0-9-]+$/.test(value)) {
+        return '';
+      }
+      return value;
+    }
+
+    function syncPresetFromInput() {
+      const normalized = normalizeSiteValue(siteInput ? siteInput.value : '');
+      if (sitePreset) {
+        sitePreset.value = (normalized && knownSites.has(normalized)) ? normalized : 'custom';
+      }
+      if (siteLink) {
+        if (normalized) {
+          const targetUrl = `https://${normalized}.synerioncloud.com/`;
+          siteLink.href = targetUrl;
+          siteLink.textContent = `[בדיקת קישור לאתר שנבחר](${targetUrl})`;
+          siteLink.classList.remove('disabled');
+        } else {
+          siteLink.href = '#';
+          siteLink.textContent = 'בדיקת קישור לאתר שנבחר';
+          siteLink.classList.add('disabled');
+        }
+      }
+    }
+
+    if (siteInput) {
+      const initial = normalizeSiteValue(siteInput.value || currentSite || 'prologic') || 'prologic';
+      siteInput.value = initial;
+      syncPresetFromInput();
+      siteInput.addEventListener('input', syncPresetFromInput);
+    }
+
+    if (sitePreset && siteInput) {
+      sitePreset.addEventListener('change', () => {
+        if (sitePreset.value !== 'custom') {
+          siteInput.value = sitePreset.value;
+        }
+        syncPresetFromInput();
+        siteInput.focus();
+        siteInput.select();
+      });
+    }
 
     fileInput.addEventListener('change', () => {
       const file = fileInput.files[0];
@@ -404,7 +538,14 @@ HTML_PAGE = """
         formData.append('pdf', file);
       }
       formData.append('mode', mode);
-      formData.append('site', siteInput ? siteInput.value : (currentSite || 'prologic'));
+      const selectedSite = normalizeSiteValue(siteInput ? siteInput.value : (currentSite || 'prologic'));
+      if (!selectedSite) {
+        setBusy(false);
+        setStatus('אתר לא תקין', true);
+        logEl.textContent = 'יש לבחור אתר סינריון תקין (למשל prologic או trex).';
+        return;
+      }
+      formData.append('site', selectedSite);
 
       const response = await fetch('/api/jobs', { method: 'POST', body: formData });
       const payload = await response.json();
