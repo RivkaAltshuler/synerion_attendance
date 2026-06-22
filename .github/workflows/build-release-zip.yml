@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-zip:
@@ -43,3 +43,15 @@ jobs:
           name: synerion_attendance_release_zip
           path: release/synerion_attendance.zip
           if-no-files-found: error
+
+      - name: Publish ZIP to GitHub Releases
+        uses: ncipollo/release-action@v1
+        with:
+          tag: latest
+          name: Latest Build
+          body: Automated release package from the latest main build.
+          allowUpdates: true
+          prerelease: true
+          artifacts: release/synerion_attendance.zip
+          artifactErrorsFailBuild: true
+          replacesArtifacts: true
