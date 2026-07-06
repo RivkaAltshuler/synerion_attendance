@@ -372,12 +372,14 @@ HTML_PAGE = """
 <body>
   <div class="shell">
     <section class="hero">
-      <div class="badge">ממשק מקומי לסינריון</div>
      
-      <p class="sub">המסך הזה רץ רק על המחשב המקומי. מעלים קובץ דיווח שעות ממל"מ והכלי מפעיל דיווח תואם בסינריון.</p>
+     
+      <p class="sub"> מעלים קובץ דיווח שעות ממל"מ והכלי מפעיל דיווח תואם בסינריון</p>
 
       <details class="site-quick">
-        <summary>בחירת אתר סינריון</summary>
+        <summary> אתר סינריון
+          <a id="site-link" class="site-link" href="#" target="_blank" rel="noopener noreferrer">בדיקת קישור לאתר שנבחר</a>
+        </summary>
         <div class="site-quick-body">
           <div class="site-quick-row">
             <select id="site-preset" aria-label="בחירה מהירה של אתר סינריון">
@@ -387,7 +389,7 @@ HTML_PAGE = """
             </select>
             <input id="site-input" type="text" value="{{ current_site or default_site_prefix }}" placeholder="למשל: prologic או https://tenant.synerioncloud.com/">
           </div>
-          <a id="site-link" class="site-link" href="#" target="_blank" rel="noopener noreferrer">בדיקת קישור לאתר שנבחר</a>
+        
           <div class="tips">
             <div>אם האתר לא מופיע ברשימה, בוחרים "אחר" ועורכים את השדה ידנית.</div>
             <div>אפשר להדביק גם URL מלא, והמערכת תשמור רק את הקידומת.</div>
@@ -398,9 +400,6 @@ HTML_PAGE = """
 
     <section class="grid">
       <div class="panel">
-        <h2>קובץ דוח</h2>
-        
-
         <div class="dropzone">
           <input id="pdf-input" type="file" accept=".pdf,application/pdf">
           <div id="file-name" class="file-name">עדיין לא נבחר קובץ</div>
@@ -422,8 +421,7 @@ HTML_PAGE = """
       <div class="panel status-card">
         <div class="status-line">
           <div>
-            <h2 style="margin: 0 0 4px;">פלט ריצה</h2>
-            <div class="hint" style="margin: 0;">הלוג כאן מתעדכן בזמן אמת.</div>
+            <h2 style="margin: 0 0 4px;">פלט ריצה</h2>        
           </div>
           <div id="status-pill" class="pill">מוכן</div>
         </div>
