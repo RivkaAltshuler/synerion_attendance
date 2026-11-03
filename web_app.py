@@ -109,6 +109,9 @@ HTML_PAGE = """
       max-width: 1080px;
       margin: 0 auto;
       padding: 32px 20px 48px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
 
     .hero {
@@ -140,6 +143,20 @@ HTML_PAGE = """
       font-size: 18px;
       line-height: 1.7;
       margin: 0;
+    }
+
+    .repo-link {
+      width: fit-content;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: underline;
+    }
+
+    .repo-footer {
+      margin-top: auto;
+      padding-top: 16px;
+      text-align: right;
     }
 
     .site-quick {
@@ -375,27 +392,6 @@ HTML_PAGE = """
      
      
       <p class="sub"> מעלים קובץ דיווח שעות ממל"מ והכלי מפעיל דיווח תואם בסינריון</p>
-
-      <details class="site-quick">
-        <summary> אתר סינריון
-          <a id="site-link" class="site-link" href="#" target="_blank" rel="noopener noreferrer">בדיקת קישור לאתר שנבחר</a>
-        </summary>
-        <div class="site-quick-body">
-          <div class="site-quick-row">
-            <select id="site-preset" aria-label="בחירה מהירה של אתר סינריון">
-              <option value="prologic">[https://prologic.synerioncloud.com/]</option>
-              <option value="trex">[https://trex.synerioncloud.com/]</option>
-              <option value="custom">[אחר - עריכה ידנית]</option>
-            </select>
-            <input id="site-input" type="text" value="{{ current_site or default_site_prefix }}" placeholder="למשל: prologic או https://tenant.synerioncloud.com/">
-          </div>
-        
-          <div class="tips">
-            <div>אם האתר לא מופיע ברשימה, בוחרים "אחר" ועורכים את השדה ידנית.</div>
-            <div>אפשר להדביק גם URL מלא, והמערכת תשמור רק את הקידומת.</div>
-          </div>
-        </div>
-      </details>
     </section>
 
     <section class="grid">
@@ -406,16 +402,39 @@ HTML_PAGE = """
         </div>
 
         <div class="actions">
-          <button class="action-btn summary" data-mode="summary">בדיקת PDF בלבד</button>
-          <button class="action-btn verify" data-mode="verify">אימות מול סינריון</button>
+          <button class="action-btn summary" data-mode="summary" hidden>בדיקת PDF בלבד</button>
+          <button class="action-btn verify" data-mode="verify" hidden>אימות מול סינריון</button>
           <button class="action-btn auto" data-mode="auto">דיווח אוטומטי לסינריון</button>
         </div>
 
         <div class="tips">
-          <div>בדיקה בלבד לא פותחת את סינריון.</div>
-          <div>אימות ודיווח יפתחו דפדפן אמיתי וידרשו התחברות.</div>
+          <div>הדיווח יפתח דפדפן אמיתי וידרוש התחברות.</div>
           <div>חופשה ומחלה עדיין מוזנים ידנית בתוך סינריון.</div>
+       
         </div>
+<br/>
+        <details class="site-quick">
+          <summary>לחץ כאן לשינוי אתר סינריון</summary>
+          <div class="site-quick-body">
+            <a id="site-link" class="site-link" href="#" target="_blank" rel="noopener noreferrer">פתיחת מערכת סינריון</a>
+            <div class="site-quick-row">
+              <select id="site-preset" aria-label="בחירה מהירה של אתר סינריון">
+                <option value="prologic">[https://prologic.synerioncloud.com/]</option>
+                <option value="trex">[https://trex.synerioncloud.com/]</option>
+                <option value="custom">[אחר - עריכה ידנית]</option>
+              </select>
+              <input id="site-input" type="text" value="{{ current_site or default_site_prefix }}" placeholder="למשל: prologic או https://tenant.synerioncloud.com/">
+            </div>
+            <div class="tips">
+              <div>אם האתר לא מופיע ברשימה, בוחרים "אחר" ועורכים את השדה ידנית.</div>
+              <div>אפשר להדביק גם URL מלא, והמערכת תשמור רק את הקידומת.</div>
+            </div>
+          </div>
+        </details>
+<br/>
+<br/>
+<br/>
+     <a class="repo-link" href="https://github.com/RivkaAltshuler/synerion_attendance" target="_blank" rel="noopener noreferrer">קוד המקור של הפרויקט ב-GitHub</a>
       </div>
 
       <div class="panel status-card">
@@ -429,6 +448,8 @@ HTML_PAGE = """
         <pre id="log" class="log">כאן יופיעו התוצאות.</pre>
       </div>
     </section>
+
+  
   </div>
 
   <script>
@@ -450,12 +471,12 @@ HTML_PAGE = """
         return '';
       }
       let value = String(raw).trim().toLowerCase();
-      value = value.replace(/^https?:\/\//, '');
+      value = value.replace(/^https?:\\/\\//, '');
       value = value.split('/', 1)[0];
       if (value.endsWith('.synerioncloud.com')) {
         value = value.slice(0, -'.synerioncloud.com'.length);
       }
-      value = value.replace(/^\.+|\.+$/g, '');
+      value = value.replace(/^\\.+|\\.+$/g, '');
       if (!/^[a-z0-9-]+$/.test(value)) {
         return '';
       }
@@ -469,9 +490,9 @@ HTML_PAGE = """
       }
       if (siteLink) {
         if (normalized) {
-          const targetUrl = `https://${normalized}.synerioncloud.com/`;
+          const targetUrl = `https://${normalized}.synerioncloud.com/SynerionWeb/#/attendance`;
           siteLink.href = targetUrl;
-          siteLink.textContent = `[בדיקת קישור לאתר שנבחר](${targetUrl})`;
+          siteLink.textContent = 'פתיחת מערכת סינריון';
           siteLink.classList.remove('disabled');
         } else {
           siteLink.href = '#';
